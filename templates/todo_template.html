@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <meta charset="utf-8" />
+  <title>To-do</title>
+ </head>
+ <body>
+    <h1>To Do</h1>
+ 	<form name="newitem" method="post" action="/add/" enctype="x-www-form-urlencoded" autocomplete="off">
+ 		<p><input type="text" name="item"> <input type="submit" value="Add"></p>
+ 	</form>
+  <ul>
+	{{ range $key, $val := . }}
+	{{ if $val }}<li>{{ $val }} <a href="/delete/{{ $key }}">Delete</a></li>{{ end }}
+	{{ end }}
+</ul>
+ </body>
+
+</html>
