@@ -1,30 +1,73 @@
 package main
 
 import (
+	"database/sql"
+	_ "github.com/mattn/go-sqlite3"
 	"html/template"
-	"net/http"
-	// "fmt"
-	"bufio"
 	"log"
-	"os"
+	"net/http"
 	"strconv"
 	"strings"
 )
 
-func fetchTodos(writer http.ResponseWriter, request *http.Request) {
-	todoFilename := "todos.txt"
-	file, err := os.Open(todoFilename)
-	defer file.Close()
-	todos := make(map[int]string)
-	if err == nil {
-		// var todos map[int]string
-		scanner := bufio.NewScanner(file)
-		ind := 0
-		for scanner.Scan() {
-			todos[ind] = scanner.Text()
-			// todos = append(todos, scanner.Text())
-			ind += 1
+type Todo struct {
+	Id   int
+	Name string
+}
+
+var Db *sql.DB
+
+func init() {
+	var err error
+	Db, err = sql.Open("sqlite3", "db.sqlite")
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func getTodos(limit int) (todos []Todo, err error) {
+	rows, err := Db.Query("select id, name from todos limit $1", limit)
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		todo := Todo{}
+		err = rows.Scan(&todo.Id, &todo.Name)
+		if err != nil {
+			return
 		}
+		todos = append(todos, todo)
+	}
+	rows.Close()
+	return
+
+}
+
+func (todo *Todo) addTodo() (err error) {
+	stm := "insert into todos (name) values ($1) returning id"
+	s, err := Db.Prepare(stm)
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	err = s.QueryRow(todo.Name).Scan(&todo.Id)
+	return
+}
+
+func (todo *Todo) Delete() (err error) {
+	_, err = Db.Exec("delete from todos where id = $1", todo.Id)
+	return
+}
+
+func fetchTodos(writer http.ResponseWriter, request *http.Request) {
+
+	todos := make(map[int]string)
+	results, err := getTodos(10)
+	for _, t := range results {
+		todos[t.Id] = t.Name
+	}
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	t, _ := template.ParseFiles("templates/todo_template.html")
@@ -33,14 +76,13 @@ func fetchTodos(writer http.ResponseWriter, request *http.Request) {
 
 func addTodo(writer http.ResponseWriter, request *http.Request) {
 	// request.ParseForm()
-	newTodo := request.FormValue("item")
-	todoFilename := "todos.txt"
-	f, err := os.OpenFile(todoFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatal(err)
+	newItem := request.FormValue("item")
+	newTodo := Todo{
+		Name: newItem,
 	}
-	defer f.Close()
-	if _, err := f.WriteString("\n" + newTodo); err != nil {
+
+	err := newTodo.addTodo()
+	if err != nil {
 		log.Fatal(err)
 	}
 	http.Redirect(writer, request, "/", http.StatusFound)
@@ -55,35 +97,11 @@ func deleteTodo(writer http.ResponseWriter, request *http.Request) {
 		log.Fatal(err)
 	}
 
-	todoFilename := "todos.txt"
-	file, err := os.Open(todoFilename)
-	defer file.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	var todos []string
-	scanner := bufio.NewScanner(file)
-	ind := 0
-	for scanner.Scan() {
-		if ind != indToDelete {
-			todos = append(todos, scanner.Text())
-		}
-		// todos = append(todos, scanner.Text())
-		ind += 1
+	newTodo := Todo{
+		Id: indToDelete,
 	}
 
-	file, err = os.OpenFile(todoFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	fileWriter := bufio.NewWriter(file)
-	for _, data := range todos {
-		_, _ = fileWriter.WriteString(data + "\n")
-	}
-
-	fileWriter.Flush()
+	_ = newTodo.Delete()
 	http.Redirect(writer, request, "/", http.StatusFound)
 
 }
